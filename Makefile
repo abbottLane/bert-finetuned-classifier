@@ -9,6 +9,10 @@ venv/touchfile: requirements.txt
 build: venv
 	. venv/bin/activate; echo "Output of pip freeze: " && pip freeze
 
+run: venv
+	. venv/bin/activate; python classify.py
+
+
 clean:
 	rm -rf venv
 	find -iname "*.pyc" -delete

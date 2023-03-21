@@ -23,7 +23,7 @@ class EmailClassifier(nn.Module):
     
     Given that there is not a lot of training data, we will use a pre-trained BERT model and fine-tune it for classification. 
     This simple model loads the pre-trained BERT model and adds a dropout layer and a linear layer on top of it.
-    During training we will freeze the BERT model and only train the dropout and linear layers.
+    During training we will freeze the BERT model and only train the linear layer.
 
     Args:
         num_classes (int): The number of classes to classify emails into. Defaults to NUM_CLASSES.
