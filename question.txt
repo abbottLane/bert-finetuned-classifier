@@ -1,0 +1,41 @@
+### Aim: To classify a given email content into one of the four topics.
+
+**Email Format:** 
+- Json lines format: The data can be loaded into a list, where each item is a parseable JSON object.
+- Data format: Each email has Subject, Body, Date (datatime stamp in which the email was recieved) 
+- Example format: [ {"Subject": "",  "Body": "", "Date": _datetime_, "Label": ""} , {"Subject": "",  "Body": "", "Date": _datetime_, "Label": ""} ... ]
+
+**Output Labels:**
+- Classify the email as one of the four topics: ["sports", "world", "scitech", "business"]
+
+**Given Data Files:**
+- Train data: Contains 860 training samples used to train the model
+- Test data (stand-alone): Contains 200 testing samples used exclusively to evaluate the model after training. Do not use this data during training.
+
+**Given Code Files:**
+- classify.py: The starter template code containing the overall pipeline steps with methods to implement is provided.
+
+**Tasks To Do:**
+
+1. **Data Analysis:** Implement Step 1 "analyse_data" to understand the given data and its statistical properties.
+2. **Feature Extraction:** Implement Step 3 "extract_features" to extract features from the input text data.
+3. **Training Loop:** Implement Step 4 "train_model" to train the classification model.
+4. **Metrics:** Implement Step 5 "compute_metrics" with appropriate metrics to correctly evaluate the classification model's performance.
+
+**Optional Additional Tasks:**
+
+1. **Data Cleaning:** Improve Step 2 to clean the data, remove any noise, and prepare it for training.
+2. **Deep Learning Model:** Improve "EmailClassifier" module to implement a better deep learning model as a classifier.
+3. **Hyperparemter tuning:** Perform required tuning of hyperparameters to make the classification model more robust.
+
+**Submission**
+- Provide the implemented metric values in the stand-alone test data.
+- Provide the implemented code.
+
+**Note**: 
+- The input starter-code is only a template code. Feel free to modify/update the code wherever required.
+- If you encounter any bugs in the code, do fix them.
+- The code (pytorch model) is specifically written to be executed in a CPU environment. If you are planning to test this code in a GPU environment, please do the necessary changes where required.
+- You are not expected to spend more than 3 hours for the entire exercise. 
+
+All the best! 

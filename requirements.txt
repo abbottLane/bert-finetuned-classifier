@@ -1,0 +1,7 @@
+pandas
+scikit-learn
+torch==1.13
+torchtext==0.14.0
+torchdata==0.5.0
+transformers
+matplotlib
