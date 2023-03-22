@@ -1,6 +1,7 @@
 import pickle
 import string
 import torch
+import numpy as np
 from sklearn import metrics
 from torch import nn
 from torch.utils.data.dataset import random_split
@@ -12,11 +13,48 @@ import csv
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-MAX_SEQ_LENGTH = 512
+LEARNING_RATE = 1e-3 # for AdamW optimizer
+WEIGHT_DECAY = 1e-2 # for AdamW optimizer
+EPSILON = 1e-8 # for AdamW optimizer
+MAX_SEQ_LENGTH = 128
 BATCH_SIZE = 32
-EPOCHS = 5
-NUM_CLASSES = 4
+EPOCHS =50
 TRAIN_SPLIT = .80
+EXCLUDE_LABELS = {}
+
+def main(train_path: str, test_path: str) -> None:
+    ### Step #0: Load data
+    train_data = load_data(train_path)
+
+    ### Step #1: Analyse data
+    analyse_data(train_data, split="train")
+
+    ### Step #2: Clean and prepare data
+    train_data = data_clean(train_data, exclude_labels=EXCLUDE_LABELS)
+    train_ds, val_ds, labels = data_prepare(train_data, split_percent = TRAIN_SPLIT)
+
+    ### Step #3: Extract features
+    train_iter, val_iter = extract_features(train_ds, val_ds, labels)
+    
+    ### Step #4: Train model
+    model = EmailClassifier(num_classes=len(labels))
+        
+    criterion = nn.CrossEntropyLoss()
+    optimizer= AdamW(model.parameters(), lr=LEARNING_RATE, eps=EPSILON, weight_decay=WEIGHT_DECAY)
+    
+    loss_data=train_model(EPOCHS, train_iter, val_iter, model, criterion, optimizer)
+    plot_loss(loss_data, phase="train")
+
+    ### Step #5: Stand-alone Test data & Compute metrics
+    test_data = load_data(test_path)
+    analyse_data(test_data, split="test")
+    test_data = data_clean(test_data, exclude_labels=EXCLUDE_LABELS)
+    test_data, _, labels = data_prepare(test_data, split_percent = 1)
+    # Extract features is just a wrapper around the dataloader, so we can use it directly here
+    test_data = get_dataloader(test_data, labels, batch_size=BATCH_SIZE, max_seq_length=MAX_SEQ_LENGTH)
+    compute_metrics(model, test_data, phase='test', label_names=test_data.dataset.label_map.values())
+    return 0
+
 
 class EmailClassifier(nn.Module):
     """A BERT-based email classifier
@@ -28,9 +66,14 @@ class EmailClassifier(nn.Module):
     Args:
         num_classes (int): The number of classes to classify emails into. Defaults to NUM_CLASSES.
     """
-    def __init__(self, num_classes=NUM_CLASSES):
+    def __init__(self, num_classes):
         super(EmailClassifier, self).__init__()
         self.bert = BertModel.from_pretrained('bert-base-uncased')
+
+        # We do not want to retrain our pretrained layers except the last linear layer
+        for param in self.bert.parameters():
+            param.requires_grad = False
+
         self.dropout = nn.Dropout(p=0.1)
         self.classifier = nn.Linear(self.bert.config.hidden_size, num_classes)
 
@@ -52,73 +95,45 @@ def load_data(path: str) -> list:
 # Step #1: Analyse data
 def analyse_data(data: list, split: str) -> None:
     """Analyse data files"""
-    # Check the number of emails in each class and write a csv file with the headers [label, count, percentage]
-    labels = [x['Label'] for x in data]
-    with open(f'./reports/{split}_email_class_distribution.csv', 'w') as f:
-        writer = csv.writer(f)
-        writer.writerow(['label', 'count', 'percentage'])
-        for label in sorted(list(set(labels))):
-            count = labels.count(label)
-            writer.writerow([label, count, count / len(labels)])
-
-    # plot the number of emails in each class and write to a file
-    pd.Series(labels).value_counts().plot(kind='bar')
-    plt.subplots_adjust(bottom=0.6)
-    plt.savefig(f'./reports/{split}_email_class_distribution.png')
-    plt.clf()
-
-    # count occurences of each word in the emails and plot a new histogram
-    words_and_counts = {}
-    for x in data:
-        for word in x['Body'].split():
-            if word in words_and_counts:
-                words_and_counts[word] += 1
-            else:
-                words_and_counts[word] = 1
-        for word in x['Subject'].split():
-            if word in words_and_counts:
-                words_and_counts[word] += 1
-            else:
-                words_and_counts[word] = 1
-    pd.Series(words_and_counts).value_counts().sort_values(ascending=True).plot(kind='hist')
-    plt.savefig(f'./reports/{split}_email_word_distribution.png')
-    plt.clf()
-
-    # write word count to a csv file
-    with open(f'./reports/{split}_email_word_distribution.csv', 'w') as f:
-        writer = csv.writer(f)
-        writer.writerow(['word_count'])
-        for x in data:
-            writer.writerow([len(x['Body'].split())])
-
+    write_wordcount_and_distribution([(x['Subject'], x['Label']) for x in data], split, str_type='subject')
+    write_wordcount_and_distribution([(x['Body'], x['Label']) for x in data], split, str_type='body')
+    write_label_distribution(data, split)
 
 # Step #2: Clean data
-def data_clean(data: list) -> list:
+def data_clean(data: list, exclude_labels: set) -> list:
     """A data cleaning routine. Removes punctuation and unwanted whitespace from the data. """
     clean_data = []
     for curr_data in data:
-        # Remove punctuation
-        curr_data["Subject"] = curr_data["Subject"].translate(str.maketrans(string.punctuation, ' '*len(string.punctuation)))
-        curr_data["Body"] = curr_data["Body"].translate(str.maketrans(string.punctuation, ' '*len(string.punctuation)))
-        # Remove whitespace (\t)
-        curr_data["Body"] = curr_data["Body"].replace("\t", " ")
-        curr_data["Subject"] = curr_data["Subject"].replace("\t", " ")
-        curr_data['text'] = curr_data['Subject'] + " " + curr_data['Body']
-        clean_data.append(curr_data)        
+        if curr_data['Label'] not in EXCLUDE_LABELS:
+            # Remove punctuation
+            curr_data["Subject"] = curr_data["Subject"].translate(str.maketrans(string.punctuation, ' '*len(string.punctuation)))
+            curr_data["Body"] = curr_data["Body"].translate(str.maketrans(string.punctuation, ' '*len(string.punctuation)))
+            # Remove whitespace (\t)
+            curr_data["Body"] = curr_data["Body"].replace("\t", " ")
+            curr_data["Subject"] = curr_data["Subject"].replace("\t", " ")
+            curr_data['text'] = curr_data['Subject'] + " " + curr_data['Body']
+            clean_data.append(curr_data)        
     return clean_data
 
 # Step #2: Prepare data
-def data_prepare(train_data: list, train_percent: int) -> list:
-    """A data preparation routine. Splits data into train and validation sets.
+def data_prepare(data: list, split_percent: int, resample: bool = False) -> list:
+    """A data preparation routine. If this is training, splits data into train and validation sets.
+    If this is testing, split_percent should be set to 1 so no splitting occurs.
     """
     # make a label map
-    labels = sorted(list(set([x['Label'] for x in train_data])))
+    labels = sorted(list(set([x['Label'] for x in data])))
     label_map= dict(zip(labels, range(len(labels))))
 
     # reshape data into string label pairs
-    train_dataset = [(label_map[x['Label']], x['text']) for x in train_data]
-    num_train = train_percent * len(train_dataset)
-    split_train_, split_valid_ = random_split(train_dataset, [int(num_train), len(train_dataset) - int(num_train)])
+    dataset = [(label_map[x['Label']], x['text']) for x in data]
+
+    if resample: 
+        # resample data to balance classes
+        dataset = resample_data(dataset)
+        
+    # split data into train and validation sets if this is training
+    num_train = split_percent * len(dataset)
+    split_train_, split_valid_ = random_split(dataset, [int(num_train), len(dataset) - int(num_train)])
     train_data_split = data_by_indices(split_train_)
     valid_data_split = data_by_indices(split_valid_)
     return train_data_split, valid_data_split, label_map
@@ -143,7 +158,7 @@ def train_model(epochs,train_dataloader,val_dataloader,model,criterion,optimizer
         model.train()
         model.to(device)
 
-        running_loss = 0.0
+        running_loss = []
         for step, batch in enumerate(train_dataloader):
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
@@ -160,13 +175,16 @@ def train_model(epochs,train_dataloader,val_dataloader,model,criterion,optimizer
             optimizer.step()
             scheduler.step()
 
-            running_loss += loss.item()
+            running_loss.append(float(loss.item()))
 
-            # Print training progress every 10 steps
-            if step % 10 == 9:
-                print(f'Epoch [{epoch + 1}/{epochs}], Step [{step + 1}/{len(train_dataloader)}], Loss: {running_loss / 100:.4f}')
-                loss_data.append(("epoch: " + str(epoch + 1) + " step: " + str(step), running_loss / 100))
-                running_loss = 0.0
+            # Print training progress every 22 steps/ 
+            num_steps = 22
+            if step % num_steps == 0:
+                # compute the average running loss
+                arl = (sum(running_loss) / len(running_loss))
+                print(f'Epoch [{epoch + 1}/{epochs}], Step [{step + 1}/{len(train_dataloader)}], Loss: {arl:.4f}')
+                loss_data.append(("epoch: " + str(epoch + 1) + " step: " + str(step), arl))
+                running_loss = []
         
         # Calculate accuracy on validation set
         compute_metrics(model, val_dataloader, phase='validation', label_names=val_dataloader.dataset.label_map.values())
@@ -203,46 +221,6 @@ def data_by_indices(dataset):
     """Returns a list of data rows given a dataset and a list of indices"""
     return [dataset.dataset[i] for i in dataset.indices]
 
-
-
-def main(train_path: str, test_path: str) -> None:
-    ### Perform the following steps and complete the code
-
-    ### Step #0: Load data
-    train_data = load_data(train_path)
-
-    ### Step #1: Analyse data
-    analyse_data(train_data, split="train")
-
-    ### Step #2: Clean and prepare data
-    # fields, TEXTFIELD, LABELFIELD = data_fields()
-    train_data = data_clean(train_data)
-    train_ds, val_ds, labels = data_prepare(train_data, train_percent = TRAIN_SPLIT)
-
-    ### Step #3: Extract features
-    train_iter, val_iter = extract_features(train_ds, val_ds, labels)
-    
-    ### Step #4: Train model
-    model = EmailClassifier()
-    
-    # We do not want to retrain our pretrained layers except the last linear layer
-    for param in model.bert.parameters():
-        param.requires_grad = False
-    
-    criterion = nn.CrossEntropyLoss()
-    optimizer= torch.optim.Adam(model.parameters(),lr= 0.0001)
-    
-    loss_data=train_model(EPOCHS, train_iter, val_iter, model, criterion, optimizer)
-    plot_loss(loss_data, phase="train")
-
-    ### Step #5: Stand-alone Test data & Compute metrics
-    test_data = load_data(test_path)
-    analyse_data(test_data, split="test")
-    test_data = data_clean(test_data)
-    test_data = get_dataloader(test_data, labels, batch_size=BATCH_SIZE, max_seq_length=MAX_SEQ_LENGTH)
-    compute_metrics(model, test_data, phase='test', label_names=test_data.dataset.label_map.values())
-    return 0
-
 def plot_loss(loss_data, phase):
     """Plot the training loss data
     Args:
@@ -256,13 +234,67 @@ def plot_loss(loss_data, phase):
     plt.plot(x, y, label=phase)
     plt.xlabel("Epoch")
     plt.gcf().autofmt_xdate() # rotate x-axis labels
+    plt.gcf().subplots_adjust(bottom=0.2) # make room for x-axis labels
+    plt.xticks(np.arange(0, len(x), 5)) # spread out x axis ticks so you can read labels
     plt.ylabel("Loss")
     plt.title(f"{phase} loss")
     plt.legend()
     plt.savefig(f"./reports/{phase}_loss.png")
     plt.clf()
 
+def write_label_distribution(data, split):
+    # Check the number of emails in each class and write a csv file with the headers [label, count, percentage]
+    labels = [x['Label'] for x in data]
+    with open(f'./reports/{split}_email_class_distribution.csv', 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(['label', 'count', 'percentage'])
+        for label in sorted(list(set(labels))):
+            count = labels.count(label)
+            writer.writerow([label, count, count / len(labels)])
+
+    # plot the number of emails in each class and write to a file
+    pd.Series(labels).value_counts().plot(kind='bar')
+    plt.subplots_adjust(bottom=0.4)
+    plt.savefig(f'./reports/{split}_email_class_distribution.png')
+    plt.clf()
+
+def write_wordcount_and_distribution(data, split, str_type):
+    # for every label, collect words and counts
+    tokens_by_label = {label: {} for label in set([x[1] for x in data])}
+    for x in data:
+        tokens = x[0].split()
+        for token in tokens:
+            if token in tokens_by_label[x[1]]:
+                tokens_by_label[x[1]][token] += 1
+            else:
+                tokens_by_label[x[1]][token] = 1
+    for label, tokens in tokens_by_label.items():
+        # Write word counts to a csv file
+        with open(f'./reports/{split}_{str_type}_wordcount_{label}.csv', 'w') as f:
+            writer = csv.writer(f)
+            writer.writerow(['word', 'count', 'percentage'])
+            total = sum(tokens.values())
+            # sort by count
+            sorted_tokens = sorted(tokens.items(), key=lambda x: x[1], reverse=True)
+            for word, count in sorted_tokens:
+                writer.writerow([word, count, count / total])
+        
+        # make a plot of the top 20 words
+        sorted_tokens = sorted(tokens.items(), key=lambda x: x[1], reverse=True)
+        top_20 = sorted_tokens[:20]
+        x, y = zip(*top_20)
+        plt.bar(x, y)
+        plt.xlabel("Word")
+        plt.ylabel("Count")
+        plt.gcf().autofmt_xdate()
+        plt.title(f"Top 20 words in {split} set for label {label}")
+        plt.savefig(f"./reports/{split}_{str_type}_wordcount_{label}.png")
+        plt.clf()
+
+def resample_data(data, split):
+    pass
+
 if __name__ == "__main__":
     train_path = "./data/agnews_combined_train.pkl"
-    test_path = "./data/agnews_combined_train.pkl"
+    test_path = "./data/agnews_combined_test.pkl"
     main(train_path, test_path)
