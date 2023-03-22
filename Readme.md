@@ -24,13 +24,13 @@ The model achieved these results on the test set:
 
 ```
                precision  recall  f1-score  support
-business       0.529412    0.90  0.666667    50.00
+business       0.547619    0.92  0.686567    50.00
 scitech        0.793651    1.00  0.884956    50.00
 sports         0.980392    1.00  0.990099    50.00
-world          1.000000    0.02  0.039216    50.00
-accuracy       0.730000    0.73  0.730000     0.73
-macro avg      0.825864    0.73  0.645234   200.00
-weighted avg   0.825864    0.73  0.645234   200.00
+world          1.000000    0.04  0.076923    50.00
+accuracy       0.740000    0.74  0.740000     0.74
+macro avg      0.830415    0.74  0.659636   200.00
+weighted avg   0.830415    0.74  0.659636   200.00
 ```
 
 ## Analysis Data
@@ -49,15 +49,11 @@ The main training script produces some figures and data in the `reports/` folder
 
 ## Learnings from the analysis data
 
-1. There is a big class imbalance. On another iteration of this project I would first try to up/downsample to get an even distribution with the scitech data
-2. The word distributions show that only scitech and business are following regular lexical and syntactic patterns of english. In English, we expect to see something zipfian with functional words like determiners and conjunctions at the top. 
-        a. this is only true for scitech and business
-        b. While the sports class appears to be lexically scrambled, it is still zipfian.
-            i. I inferred from this that its possible that the noise is not random, but ciphered by a regular vocabulary shift, and therefore even if not human readable it might still contain learnable underlying structure. The abilitiy of the model to learn from trining and generalize to the test set seems to confirm this theory. 
-            ii. Even if the scrambling is regular and retains syntactic structure, the vocabulary may still overlap with the non-scrambled classes. Because we are using a pretrained model as our base, there is a certain prior about word meanings and relationships. During fine-tuning, vocabulary which overlaps between scrambled and non-scrambled classes will cause noisy signal. This overlap, and the nature of the scramble might be worth digging into.          
-3. The class imbalance issue is worse if we assume the test set reflects the expected "in-the-wild" distributions.
-    This suggests a severe mismatch of expectation with respect to our data collection process vs. real world conditions. 
-    A test set should reflect real-world distributions, and validation data should be drawn from the same distribution so that we can have confidence in training that we are capturing signal representative of our use case.
+1. There is a big class imbalance. On another iteration of this project I would first try to up/downsample to get a distribution that matches our expectations of the real world.
+2. The word distributions show that only scitech and business are following regular lexical and syntactic patterns of english. In English, we expect to see something zipfian with functional words like determiners and conjunctions at the top. In this dataset, this is only true for scitech and business, which, on the surface, seems to point to corrupt data.
+3. However, while the sports class appears to be lexically scrambled, it is still zipfian. I inferred from this that its possible that the noise is not random, but ciphered by a regular vocabulary shift, and therefore even if it is not human readable it might still contain learnable underlying structure. The abilitiy of the model to learn from trining and generalize to the test set seems to confirm this theory.
+4. Even if the scrambling is regular and retains syntactic structure, the vocabulary may still overlap with the non-scrambled classes. Because we are using a pretrained model as our base, there is a certain prior about word meanings and relationships. During fine-tuning, vocabulary which overlaps between scrambled and non-scrambled classes will cause noisy signal. This overlap, and the nature of the scramble might be worth digging into.          
+3. The class imbalance issue is worse if we assume the test set reflects the expected "in-the-wild" distributions. This suggests a severe mismatch of expectation with respect to our data collection process vs. real world conditions. A test set should reflect real-world distributions, and validation data should be drawn from the same distribution so that we can have confidence in training that we are capturing signal representative of our use case.
 
 There is plenty more to investigate and update on this project to improve performance, or gather evidence to eliminate some data.
 Some ideas moving forward:
